@@ -209,7 +209,7 @@ function render(){
 }
 function swapsHtml(filter,title){
   var list=(S.swaps||[]).filter(filter);
-  if(!list.length) return '';
+  if(!list.length) return '<div class="swaps"><h4>'+esc(title)+'</h4><div class="muted" style="font-size:13.5px;padding:2px 0 4px">No changes yet this week. Anything you change in the app shows up here with an <b>Undo</b> button.</div></div>';
   return '<div class="swaps"><h4>'+esc(title)+'</h4>'+list.map(function(w){
     var body;
     if(w.change==='Swapped') body='<span style="color:var(--red)">Came off:</span> '+esc(w.before)+'<br><span style="color:var(--brown)">Went on:</span> '+esc(w.after);
