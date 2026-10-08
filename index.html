@@ -60,11 +60,24 @@
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:0 10px; }
   .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 10px; }
   .preview { background:var(--cream); border-radius:10px; padding:10px; font-family:Georgia, serif; text-align:center; margin:8px 0; font-size:14px; }
+  .outbox { background:#FBE9E7; border:1px solid #F1C7C0; border-radius:12px; padding:10px 12px; margin:10px 0; }
+  .inbox { background:#E3F3F1; border:1px solid #BFE3DF; border-radius:12px; padding:10px 12px 4px; margin:10px 0; }
+  .tag { display:inline-block; font:700 11px "IBM Plex Sans", Arial, sans-serif; letter-spacing:1px; padding:2px 7px; border-radius:6px; color:#fff; margin-bottom:6px; }
+  .tag.out { background:var(--red); } .tag.in { background:var(--brown); } .tag.next { background:#8a5300; }
+  .outbox .keg { font-family:Lora, Georgia, serif; text-decoration:line-through; color:#7a2a1f; }
+  .lbl { font:700 10.5px "IBM Plex Sans", Arial, sans-serif; letter-spacing:1px; color:var(--muted); text-transform:uppercase; }
+  .swaps { background:#fff; border:1px solid var(--line); border-radius:12px; padding:8px 12px; margin:8px 0 14px; }
+  .swaps h4 { margin:2px 0 6px; font:600 13px "IBM Plex Sans", Arial, sans-serif; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+  .swap { display:flex; gap:10px; align-items:center; padding:7px 0; border-top:1px solid var(--line); font-size:13.5px; }
+  .swap:first-of-type { border-top:0; }
+  .swap .t { flex:1; }
+  #toast button { background:none; border:1px solid rgba(255,255,255,.6); color:#fff; border-radius:8px; padding:5px 10px; margin-left:10px; font:600 13px inherit; }
+  .preview:empty { display:none; }
   .note { background:#FFF6DA; border-radius:10px; padding:10px; font-size:14px; margin:8px 0; }
   .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
   .row .btn { flex:1; }
   .stafflabel { margin:16px 0 0; font-size:12px; font-weight:700; letter-spacing:.5px; color:var(--muted); text-transform:uppercase; }
-  #toast { position:fixed; left:16px; right:16px; bottom:20px; z-index:30; background:var(--ink); color:#fff; padding:12px 14px; border-radius:12px; display:none; font-size:14px; }
+  #toast { position:fixed; left:16px; right:16px; bottom:calc(20px + env(safe-area-inset-bottom)); z-index:30; background:var(--ink); color:#fff; padding:12px 14px; border-radius:12px; display:none; font-size:14px; align-items:center; justify-content:space-between; }
   #busy { position:fixed; inset:0; z-index:40; background:rgba(247,242,234,.7); display:none; align-items:center; justify-content:center; font-weight:600; color:var(--brown); }
 </style>
 </head>
@@ -121,7 +134,11 @@ function lineHtml(kind, v){
   return v[6] ? '<b>$'+esc(price(v[6]))+' '+esc(v[0])+(v[7]?' *'+esc(v[7]):'')+'</b>' : '<b>'+esc(v[0])+'</b>';
 }
 
-function toast(msg){ var t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(toast.h); toast.h=setTimeout(function(){t.style.display='none';},3500); }
+function toast(msg,label,fn,ms){
+  var t=document.getElementById('toast'); t.innerHTML='<span>'+esc(msg)+'</span>'; t.style.display='flex';
+  if(label){ var b=document.createElement('button'); b.textContent=label; b.onclick=function(){ t.style.display='none'; fn(); }; t.appendChild(b); }
+  clearTimeout(toast.h); toast.h=setTimeout(function(){t.style.display='none';},ms||3500);
+}
 function busy(on,txt){ document.getElementById('busytext').textContent=txt||'Saving…'; document.getElementById('busy').style.display=on?'flex':'none'; }
 function getPin(){ try{ return localStorage.getItem('fe_pin')||''; }catch(e){ return S.pin||''; } }
 function setPin(p){ S.pin=p; try{ localStorage.setItem('fe_pin',p); }catch(e){} }
@@ -164,7 +181,7 @@ function loadWeek(name){
 }
 function tab(t){
   S.tab=t; ['menu','taps','print'].forEach(function(x){document.getElementById('t-'+x).className= x===t?'on':'';});
-  render();
+  render(); if(t==='taps') loadSwaps();
 }
 function render(){
   var m=document.getElementById('main');
@@ -192,14 +209,23 @@ function renderTaps(){
   var si=S.data.sections.indexOf(draft);
   var items=draft.items.map(function(it,ii){return {it:it,ii:ii};})
     .sort(function(a,b){return (parseFloat(a.it.v[8])||99)-(parseFloat(b.it.v[8])||99);});
-  return '<p class="muted">Tap a keg to edit it. When one kicks, tap <b>Kicked</b> to swap in the backup.</p>'+
-    items.map(function(x){
+  var h='<p class="muted">Keg kicked? Tap <b>Swap keg</b> on that tap. The kicked keg comes <b>OUT</b>, the new one goes <b>IN</b>, and the menu updates. Made a mistake? Hit <b>Undo</b> under Recent swaps.</p>';
+  if(S.swaps && S.swaps.length){
+    h+='<div class="swaps"><h4>Recent swaps</h4>'+S.swaps.map(function(w){
+      return '<div class="swap"><div class="t"><b>Tap '+esc(w.tap)+'</b> · '+esc(w.when)+'<br><span style="color:var(--red)">OUT</span> '+esc(w.out)+
+        '<br><span style="color:var(--brown)">IN</span> '+esc(w.inn)+'</div><button class="btn small ghost" onclick="undoKeg('+w.logRow+')">Undo</button></div>';
+    }).join('')+'</div>';
+  }
+  return h+items.map(function(x){
       var v=x.it.v;
       return '<div class="item"><div class="tap"><div class="tapno">'+esc(v[8]||'?')+'</div><div class="body" onclick="openEdit('+si+','+x.ii+')">'+
-        esc(v[0])+(v[1]?' '+esc(q(v[1])):'')+' <b>'+esc(v[2])+'</b>'+
-        '<div class="next">'+(v[9]?'Next up: <b>'+esc(v[9])+'</b>'+(v[10]?' · '+esc(v[10]):''):'<span class="none">No backup keg listed</span>')+'</div></div>'+
-        '<button class="btn small ghost" onclick="openKicked('+si+','+x.ii+')">Kicked</button></div></div>';
+        '<div class="lbl">On tap now</div>'+esc(v[0])+(v[1]?' '+esc(q(v[1])):'')+' <b>'+esc(v[2])+'</b>'+
+        '<div class="next"><span class="lbl">Next up</span> '+(v[9]?'<b>'+esc(v[9])+'</b>'+(v[10]?' · '+esc(v[10]):''):'<span class="none">none listed</span>')+'</div></div>'+
+        '<button class="btn small ghost" onclick="openSwap('+si+','+x.ii+')">Swap keg</button></div></div>';
     }).join('');
+}
+function loadSwaps(){
+  call('recentSwaps',[S.week],function(r){ S.swaps=r; if(S.tab==='taps') render(); },'Loading…');
 }
 function renderPrint(){
   return '<div class="card"><h3>Make this week\'s menu</h3><p class="muted">Builds the printable PDF and the editable Google Doc from <b>'+esc(S.week)+
@@ -254,17 +280,37 @@ function openAdd(si){
   S.edit={kind:sec.kind, key:sec.key, row:null, v:['','','','','','','','','','','']};
   showSheet(sheetHtml('Add to '+(sec.key==='HH'?'Happy Hour':sec.label)));
 }
-function openKicked(si,ii){
+function openSwap(si,ii){
   var sec=S.data.sections[si], it=sec.items[ii], old=it.v;
   var v=['','','','','','','','',old[8],'',''];
-  S.edit={kind:'beer', key:sec.key, row:it.row, a:old[0], v:v};
-  var note='Replacing <b>'+esc(old[0]+(old[1]?' '+q(old[1]):''))+'</b> on tap '+esc(old[8]||'?')+'.'+
-    (old[9]?' Backup to put on: <b>'+esc(old[9])+'</b>.':'')+' Fill in the new beer below. Add the next backup keg at the bottom if you have one.';
-  showSheet(sheetHtml('Kicked – new keg on tap',note));
+  S.edit={kind:'beer', key:sec.key, row:it.row, a:old[0], v:v, swap:true, old:old};
+  var h='<h3>Swap keg · Tap '+esc(old[8]||'?')+'</h3>'+
+    '<div class="outbox"><span class="tag out">OUT</span> <span class="lbl">the keg that kicked</span><div class="keg">'+esc(old[0])+(old[1]?' '+esc(q(old[1])):'')+' '+esc(old[2])+'</div></div>'+
+    '<div class="inbox"><span class="tag in">IN</span> <span class="lbl">the keg going on now (prints on the menu)</span>'+
+    (old[9]?'<div class="note" style="margin:8px 0">Backup listed for this tap: <b>'+esc(old[9])+'</b>'+(old[10]?' ('+esc(old[10])+')':'')+'</div>':'')+
+    '<div class="preview" id="pv"></div>'+
+    FIELDS.beer.map(function(x){return fieldHtml(x[0],x[1],'');}).join('')+'</div>'+
+    '<div class="inbox" style="background:#FBF3E4;border-color:#EAD9B8"><span class="tag next">NEXT UP</span> <span class="lbl">the new backup for this tap (staff only)</span>'+
+    fieldHtml(9,'Backup keg','',true)+fieldHtml(10,'Where it is','',true)+'</div>'+
+    '<div class="row"><button class="btn" onclick="save()">Swap keg</button><button class="btn ghost" onclick="closeSheet()">Cancel</button></div>'+
+    '<p class="muted" style="text-align:center;margin-top:10px">Nothing changes until you tap Swap keg.</p>';
+  showSheet(h);
+}
+function undoKeg(logRow){
+  call('undoSwap',[logRow],function(d){ S.data=d; render(); loadSwaps(); toast('Undone. The old keg is back on the menu.'); },'Undoing…');
 }
 function save(){
   var v=readForm(), e=S.edit;
-  if(!v[0].trim()){ toast('The first field can\'t be empty.'); return; }
+  if(!v[0].trim()){ toast(S.edit.swap?'Fill in the brewery of the keg going IN.':'The first field can\'t be empty.'); return; }
+  if(e.swap){
+    var outN=e.old[0]+(e.old[1]?' '+q(e.old[1]):''), inN=v[0]+(v[1]?' '+q(v[1]):'');
+    if(!confirm('Tap '+(e.old[8]||'?')+':\n\nOUT: '+outN+'\nIN: '+inN+'\n\nSwap these kegs?')) return;
+    call('swapKeg',[S.week,e.row,v,e.a],function(d){
+      S.data=d; closeSheet(); render(); loadSwaps();
+      toast('Swapped on tap '+(e.old[8]||'?')+'.','Undo',function(){ if(S.swaps&&S.swaps[0]) undoKeg(S.swaps[0].logRow); },8000);
+    },'Swapping…');
+    return;
+  }
   if(e.row) call('saveItem',[S.week,e.row,v,e.a],done);
   else call('addItem',[S.week,e.key,v],done);
 }
