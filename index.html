@@ -264,7 +264,16 @@ function b64ToBlob(b64){
   return new Blob([a],{type:'application/pdf'});
 }
 function makeMenu(){
+  var started=Date.now();
+  S.slowTimer=setTimeout(function(){ document.getElementById('busytext').textContent='Still working… Google can take up to 2 minutes. Keep the app open.'; },45000);
   call('makeMenuFor',[S.week],function(r){
+    clearTimeout(S.slowTimer);
+    if(!r.pdf){   // older Apps Script version: it saved the files in Drive and sent links instead
+      var o='<div class="note" style="margin-top:12px">The Apps Script still has the old version, so the menu was saved to Drive instead of coming straight to this phone. '+
+        'Paste in the latest Code and WebApp files and deploy a new version.</div>';
+      if(r.pdfUrl) o+='<a class="link" href="'+r.pdfUrl+'" target="_blank">Open the PDF in Drive</a>';
+      document.getElementById('menuLinks').innerHTML=o; return;
+    }
     var blob=b64ToBlob(r.pdf);
     if(S.pdfUrl) URL.revokeObjectURL(S.pdfUrl);
     S.pdfUrl=URL.createObjectURL(blob);
@@ -417,7 +426,7 @@ init();
 /* Auto-update: the phone can hold on to an old copy of the app for a while.
    Check GitHub for a newer version whenever the app opens or comes back to
    the front, and reload once if there is one. */
-var APP_BUILD='20261008145239';
+var APP_BUILD='20261008145755';
 function checkUpdate(){
   fetch('version.txt?'+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(v){
     v=v.trim(); if(v && v!==APP_BUILD && !sessionStorage.getItem('fe_reloaded_'+v)){
