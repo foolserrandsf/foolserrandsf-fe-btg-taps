@@ -207,25 +207,27 @@ function render(){
   if(S.tab==='taps') m.innerHTML=renderTaps();
   if(S.tab==='print') m.innerHTML=renderPrint();
 }
-function swapsHtml(filter){
+function swapsHtml(filter,title){
   var list=(S.swaps||[]).filter(filter);
   if(!list.length) return '';
-  return '<div class="swaps"><h4>Recent swaps</h4>'+list.map(function(w){
-    return '<div class="swap"><div class="t"><b>'+esc(w.where)+'</b> · '+esc(w.when)+'<br><span style="color:var(--red)">Came off:</span> '+esc(w.off)+
-      '<br><span style="color:var(--brown)">Went on:</span> '+esc(w.on)+'</div><button class="btn small ghost" onclick="undoKeg('+w.logRow+')">Undo</button></div>';
+  return '<div class="swaps"><h4>'+esc(title)+'</h4>'+list.map(function(w){
+    var body;
+    if(w.change==='Swapped') body='<span style="color:var(--red)">Came off:</span> '+esc(w.before)+'<br><span style="color:var(--brown)">Went on:</span> '+esc(w.after);
+    else if(w.change==='Added') body='<span style="color:var(--brown)">Added:</span> '+esc(w.after);
+    else if(w.change==='Deleted') body='<span style="color:var(--red)">Deleted:</span> '+esc(w.before);
+    else body='<span style="color:var(--red)">Was:</span> '+esc(w.before)+'<br><span style="color:var(--brown)">Now:</span> '+esc(w.after);
+    return '<div class="swap"><div class="t"><b>'+esc(w.where)+'</b> · '+esc(w.change.toLowerCase())+' · '+esc(w.when)+'<br>'+body+
+      '</div><button class="btn small ghost" onclick="undoKeg('+w.logRow+')">Undo</button></div>';
   }).join('')+'</div>';
 }
 function renderMenu(){
-  var h='<p class="muted">Tap an item to edit it. Bottle or can finished? Tap <b>Swap</b> to put the next one on. Made a mistake? Hit <b>Undo</b> under Recent swaps.</p>'+
-    legend()+swapsHtml(function(w){ return w.where.indexOf('Tap ')!==0; });
+  var h='<p class="muted">Tap any item to change it. You\'ll be asked to confirm, and every change can be undone under <b>Recent changes</b>.</p>'+
+    legend()+swapsHtml(function(){ return true; },'Recent changes');
   return h+S.data.sections.map(function(sec,si){
     var h='<div class="sec"><h2>'+esc(sec.key==='HH'?'Happy Hour':sec.label)+'</h2></div>';
     sec.items.forEach(function(it,ii){
       var staff='';
-      if(sec.kind!=='hh'){
-        staff='<div class="staff">'+(it.v[8]?'Tap '+esc(it.v[8])+' · ':'')+'Next up: '+(it.v[9]?esc(it.v[9]):'none')+pill(it.v[10])+'</div>'+
-          '<div class="acts"><button class="btn small ghost" onclick="event.stopPropagation();openSwap('+si+','+ii+')">Swap '+noun(sec)+'</button></div>';
-      }
+      if(sec.kind!=='hh' && (it.v[8]||it.v[9]||it.v[10])) staff='<div class="staff">'+(it.v[8]?'Tap '+esc(it.v[8])+' · ':'')+'Next up: '+(it.v[9]?esc(it.v[9]):'none')+pill(it.v[10])+'</div>';
       h+='<div class="item" onclick="openEdit('+si+','+ii+')">'+lineHtml(sec.kind,it.v)+staff+'</div>';
     });
     h+='<button class="add" onclick="openAdd('+si+')">+ Add to '+esc(sec.key==='HH'?'Happy Hour':sec.label)+'</button>';
@@ -238,8 +240,8 @@ function renderTaps(){
   var si=S.data.sections.indexOf(draft);
   var items=draft.items.map(function(it,ii){return {it:it,ii:ii};})
     .sort(function(a,b){return (parseFloat(a.it.v[8])||99)-(parseFloat(b.it.v[8])||99);});
-  var h='<p class="muted">Keg kicked? Tap <b>Swap keg</b> on that tap to put the next keg on. The menu updates. Made a mistake? Hit <b>Undo</b> under Recent swaps.</p>'+
-    legend()+swapsHtml(function(w){ return w.where.indexOf('Tap ')===0; });
+  var h='<p class="muted">Keg kicked? Tap <b>Swap keg</b> on that tap to put the next keg on. The menu updates. Made a mistake? Hit <b>Undo</b> under Recent tap changes.</p>'+
+    legend()+swapsHtml(function(w){ return w.where.indexOf('Tap ')===0; },'Recent tap changes');
   return h+items.map(function(x){
       var v=x.it.v;
       return '<div class="item"><div class="tap"><div class="tapno">'+esc(v[8]||'?')+'</div><div class="body" onclick="openEdit('+si+','+x.ii+')">'+
@@ -248,7 +250,7 @@ function renderTaps(){
     }).join('');
 }
 function loadSwaps(){
-  call('recentSwaps',[S.week],function(r){ S.swaps=r; if(S.tab!=='print') render(); },'Loading…');
+  call('recentChanges',[S.week],function(r){ S.swaps=r; if(S.tab!=='print') render(); },'Loading…');
 }
 function renderPrint(){
   return '<div class="card"><h3>Make this week\'s menu</h3><p class="muted">Builds the printable PDF and the editable Google Doc from <b>'+esc(S.week)+
@@ -336,7 +338,7 @@ function copyOld(){
   var o=S.edit.old; FIELDS[S.edit.kind].forEach(function(x){ var el=document.getElementById('f'+x[0]); if(el) el.value=o[x[0]]||''; }); prev();
 }
 function undoKeg(logRow){
-  call('undoSwap',[logRow],function(d){ S.data=d; render(); loadSwaps(); toast('Undone. The old one is back on the menu.'); },'Undoing…');
+  call('undoChange',[logRow],function(d){ S.data=d; render(); loadSwaps(); toast('Undone. It\'s back the way it was.'); },'Undoing…');
 }
 function save(){
   var v=readForm(), e=S.edit;
@@ -350,15 +352,32 @@ function save(){
     },'Swapping…');
     return;
   }
-  if(e.row) call('saveItem',[S.week,e.row,v,e.a],done);
-  else call('addItem',[S.week,e.key,v],done);
+  var nm=function(x){ var t=function(y){return String(y||'').trim();};
+    var n=[t(x[0]),t(x[1])?q(t(x[1])):'',t(x[2])].filter(Boolean).join(' '), tail=[t(x[4]),t(x[5]),t(x[6])].filter(Boolean).join(' | ');
+    return n+(tail?' | '+tail:'')+(t(x[7])?' *'+t(x[7]):'')+(t(x[9])?'  (next up: '+t(x[9])+(t(x[10])?', '+t(x[10]):'')+')':''); };
+  if(e.row){
+    var changed=false; for(var i=0;i<11;i++) if(String(e.v[i]||'').trim()!==String(v[i]||'').trim()) changed=true;
+    if(!changed){ closeSheet(); return; }
+    if(!confirm('Save this change?\n\nWas: '+nm(e.v)+'\nNow: '+nm(v))) return;
+    call('saveItem',[S.week,e.row,v,e.a],doneUndo('Saved.'));
+  } else {
+    if(!confirm('Add '+nm(v)+' to '+(e.key==='HH'?'Happy Hour':S.data.sections.filter(function(x){return x.key===e.key;})[0].label)+'?')) return;
+    call('addItem',[S.week,e.key,v],doneUndo('Added.'));
+  }
 }
 function del(){
-  if(!confirm('Delete this item from '+S.week+'?')) return;
-  call('deleteItem',[S.week,S.edit.row,S.edit.a],done);
+  if(!confirm('Delete '+[S.edit.v[0],S.edit.v[1]?q(S.edit.v[1]):'',S.edit.v[2]].filter(Boolean).join(' ')+' from the menu?')) return;
+  call('deleteItem',[S.week,S.edit.row,S.edit.a],doneUndo('Deleted.'));
 }
 function move(dir){ call('moveItem',[S.week,S.edit.row,dir,S.edit.a],done); }
 function done(d){ S.data=d; closeSheet(); render(); toast('Saved to the sheet'); }
+function doneUndo(msg){
+  return function(d){
+    S.data=d; closeSheet(); render();
+    call('recentChanges',[S.week],function(r){ S.swaps=r; render();
+      toast(msg,'Undo',function(){ if(S.swaps&&S.swaps[0]) undoKeg(S.swaps[0].logRow); },8000); },'Saving…');
+  };
+}
 
 /* ---------- new week ---------- */
 function openNewWeek(){
