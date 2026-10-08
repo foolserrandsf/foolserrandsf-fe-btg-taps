@@ -253,16 +253,35 @@ function loadSwaps(){
   call('recentChanges',[S.week],function(r){ S.swaps=r; if(S.tab!=='print') render(); },'Loading…');
 }
 function renderPrint(){
-  return '<div class="card"><h3>Make this week\'s menu</h3><p class="muted">Builds the printable PDF and the editable Google Doc from <b>'+esc(S.week)+
-    '</b> and saves both in the Menus folder in Drive. Takes about 20–40 seconds.</p><button class="btn" style="width:100%" onclick="makeMenu()">Make Menu</button><div id="menuLinks"></div></div>'+
-    '<div class="card"><h3>Printing</h3><p class="muted">Landscape, actual size (100%), 8.5 × 11. Print, flip the sheet printed side up, print the same page again, then cut in half.</p></div>';
+  return '<div class="card"><h3>Make this week\'s menu</h3><p class="muted">Builds the printable menu from <b>'+esc(S.week)+
+    '</b>. Takes about 20–40 seconds. Nothing is saved anywhere, so make it again any time something changes.</p>'+
+    '<button class="btn" style="width:100%" onclick="makeMenu()">Make Menu</button><div id="menuLinks"></div></div>'+
+    '<div class="card"><h3>Printing</h3><p class="muted">Tap <b>Print or share</b>, then <b>Print</b>. Landscape, actual size (100%), 8.5 × 11. '+
+    'Print, flip the sheet printed side up, print the same page again, then cut in half.</p></div>';
+}
+function b64ToBlob(b64){
+  var bin=atob(b64), n=bin.length, a=new Uint8Array(n); for(var i=0;i<n;i++) a[i]=bin.charCodeAt(i);
+  return new Blob([a],{type:'application/pdf'});
 }
 function makeMenu(){
   call('makeMenuFor',[S.week],function(r){
-    var h='<a class="link" href="'+r.pdfUrl+'" target="_blank">Open the PDF to print</a><a class="link" href="'+r.docUrl+'" target="_blank">Open the editable Google Doc</a>';
-    if(r.pages>1) h='<div class="note">Too long for one page. Shorten a description or remove an item, then make it again.</div>'+h;
+    var blob=b64ToBlob(r.pdf);
+    if(S.pdfUrl) URL.revokeObjectURL(S.pdfUrl);
+    S.pdfUrl=URL.createObjectURL(blob);
+    S.pdfFile=new File([blob],r.fileName,{type:'application/pdf'});
+    var h='';
+    if(r.pages>1) h+='<div class="note">Too long for one page. Shorten a description or remove an item, then make it again.</div>';
+    h+='<div class="note" style="margin-top:12px">Menu ready: <b>'+esc(r.fileName)+'</b></div>'+
+       '<button class="btn" style="width:100%" onclick="sharePdf()">Print or share</button>'+
+       '<a class="link" href="'+S.pdfUrl+'" target="_blank">Open the PDF to check it</a>';
     document.getElementById('menuLinks').innerHTML=h;
   },'Making the menu… (up to a minute)');
+}
+function sharePdf(){
+  var f=S.pdfFile;
+  if(f && navigator.canShare && navigator.canShare({files:[f]})){
+    navigator.share({files:[f],title:f.name}).catch(function(){});
+  } else if(S.pdfUrl){ window.open(S.pdfUrl,'_blank'); }
 }
 
 /* ---------- editor ---------- */
