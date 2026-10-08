@@ -413,6 +413,21 @@ function makeWeek(){
   call('newWeek',[S.week,n],function(w){ S.weeks=w.weeks; fillWeeks(n); closeSheet(); loadWeek(n); toast('New week created'); },'Copying…');
 }
 init();
+
+/* Auto-update: the phone can hold on to an old copy of the app for a while.
+   Check GitHub for a newer version whenever the app opens or comes back to
+   the front, and reload once if there is one. */
+var APP_BUILD='20261008145239';
+function checkUpdate(){
+  fetch('version.txt?'+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(v){
+    v=v.trim(); if(v && v!==APP_BUILD && !sessionStorage.getItem('fe_reloaded_'+v)){
+      try{ sessionStorage.setItem('fe_reloaded_'+v,'1'); }catch(e){}
+      location.replace(location.pathname+'?v='+encodeURIComponent(v));
+    }
+  }).catch(function(){});
+}
+checkUpdate();
+document.addEventListener('visibilitychange',function(){ if(!document.hidden) checkUpdate(); });
 </script>
 </body>
 </html>
