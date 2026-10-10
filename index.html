@@ -152,7 +152,7 @@ function toast(msg,label,fn,ms){
 function busy(on,txt){ document.getElementById('busytext').textContent=txt||'Saving…'; document.getElementById('busy').style.display=on?'flex':'none'; }
 function getPin(){ try{ return localStorage.getItem('fe_pin')||''; }catch(e){ return S.pin||''; } }
 function setPin(p){ S.pin=p; try{ localStorage.setItem('fe_pin',p); }catch(e){} }
-function call(fn,args,ok,txt){
+function call(fn,args,ok,txt,tries){
   if(!getPin()){ askPin(function(){ call(fn,args,ok,txt); }); return; }
   busy(true,txt);
   /* Never hang: give up after a while (longer for Make Menu) so the phone
@@ -164,6 +164,8 @@ function call(fn,args,ok,txt){
   var timer=setTimeout(function(){ if(!done){ done=true; clearTimeout(slow); if(ctl) ctl.abort(); fail('Google took too long to answer.'); } },limit);
   function fail(msg){
     busy(false);
+    // reading is always safe to repeat: try once more on its own before saying anything
+    if(READS[fn] && !tries) return call(fn,args,ok,txt,1);
     if(!S.data && (fn==='listWeeks'||fn==='getWeek')) return showRetry(msg);
     if(!READS[fn] && fn!=='makeMenuFor'){   // a change may have gone through anyway: show what the sheet has now
       closeSheet(); toast('Not sure that went through. Showing what\'s in the sheet now; check it before trying again.',null,null,8000);
@@ -286,37 +288,42 @@ function loadSwaps(){
 }
 function renderPrint(){
   return '<div class="card"><h3>Make this week\'s menu</h3><p class="muted">Builds the printable menu from <b>'+esc(S.week)+
-    '</b>. Takes about 20–40 seconds. Nothing is saved anywhere, so make it again any time something changes.</p>'+
+    '</b> right here on the phone in a few seconds. Nothing is saved anywhere, so make it again any time something changes.</p>'+
     '<button class="btn" style="width:100%" onclick="makeMenu()">Make Menu</button><div id="menuLinks"></div></div>'+
     '<div class="card"><h3>Printing</h3><p class="muted">Tap <b>Print or share</b>, then <b>Print</b>. Landscape, actual size (100%), 8.5 × 11. '+
     'Print, flip the sheet printed side up, print the same page again, then cut in half.</p></div>';
 }
-function b64ToBlob(b64){
-  var bin=atob(b64), n=bin.length, a=new Uint8Array(n); for(var i=0;i<n;i++) a[i]=bin.charCodeAt(i);
-  return new Blob([a],{type:'application/pdf'});
+function loadMenuJs(then){
+  if(window.buildMenuPdf) return then();
+  var s=document.createElement('script'); s.src='menu.js?b='+APP_BUILD;
+  s.onload=then; s.onerror=function(){ busy(false); toast('Couldn\'t load the menu maker. Check the connection and try again.'); };
+  document.head.appendChild(s);
 }
 function makeMenu(){
-  var started=Date.now();
-  S.slowTimer=setTimeout(function(){ document.getElementById('busytext').textContent='Still working… Google can take up to 2 minutes. Keep the app open.'; },45000);
-  call('makeMenuFor',[S.week],function(r){
-    clearTimeout(S.slowTimer);
-    if(!r.pdf){   // older Apps Script version: it saved the files in Drive and sent links instead
-      var o='<div class="note" style="margin-top:12px">The Apps Script still has the old version, so the menu was saved to Drive instead of coming straight to this phone. '+
-        'Paste in the latest Code and WebApp files and deploy a new version.</div>';
-      if(r.pdfUrl) o+='<a class="link" href="'+r.pdfUrl+'" target="_blank">Open the PDF in Drive</a>';
-      document.getElementById('menuLinks').innerHTML=o; return;
-    }
-    var blob=b64ToBlob(r.pdf);
-    if(S.pdfUrl) URL.revokeObjectURL(S.pdfUrl);
-    S.pdfUrl=URL.createObjectURL(blob);
-    S.pdfFile=new File([blob],r.fileName,{type:'application/pdf'});
-    var h='';
-    if(r.pages>1) h+='<div class="note">Too long for one page. Shorten a description or remove an item, then make it again.</div>';
-    h+='<div class="note" style="margin-top:12px">Menu ready: <b>'+esc(r.fileName)+'</b></div>'+
-       '<button class="btn" style="width:100%" onclick="sharePdf()">Print or share</button>'+
-       '<a class="link" href="'+S.pdfUrl+'" target="_blank">Open the PDF to check it</a>';
-    document.getElementById('menuLinks').innerHTML=h;
-  },'Making the menu… (up to a minute)');
+  // get the latest from the sheet first, then draw the menu on the phone
+  call('getWeek',[S.week],function(d){
+    S.data=d;
+    busy(true,'Making the menu…');
+    loadMenuJs(function(){
+      setTimeout(function(){
+        try{
+          window.buildMenuPdf(d,function(blob,info){
+            busy(false);
+            var name='BTG Menu - '+S.week+'.pdf';
+            if(S.pdfUrl) URL.revokeObjectURL(S.pdfUrl);
+            S.pdfUrl=URL.createObjectURL(blob);
+            S.pdfFile=new File([blob],name,{type:'application/pdf'});
+            var h='';
+            if(info.tooLong) h+='<div class="note">This week is too long to fit well. Shorten a description or remove an item, then make it again.</div>';
+            h+='<div class="note" style="margin-top:12px">Menu ready: <b>'+esc(name)+'</b></div>'+
+               '<button class="btn" style="width:100%" onclick="sharePdf()">Print or share</button>'+
+               '<a class="link" href="'+S.pdfUrl+'" target="_blank">Open the PDF to check it</a>';
+            document.getElementById('menuLinks').innerHTML=h;
+          });
+        }catch(err){ busy(false); toast('Couldn\'t make the menu: '+(err&&err.message||err)); }
+      },30);
+    });
+  },'Getting the latest menu…');
 }
 function sharePdf(){
   var f=S.pdfFile;
@@ -458,7 +465,7 @@ init();
 /* Auto-update: the phone can hold on to an old copy of the app for a while.
    Check GitHub for a newer version whenever the app opens or comes back to
    the front, and reload once if there is one. */
-var APP_BUILD='20261010142013';
+var APP_BUILD='20261010142805';
 function checkUpdate(){
   fetch('version.txt?'+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(v){
     v=v.trim(); if(v && v!==APP_BUILD && !sessionStorage.getItem('fe_reloaded_'+v)){
