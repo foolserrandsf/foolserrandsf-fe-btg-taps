@@ -158,25 +158,39 @@ function call(fn,args,ok,txt){
   /* Never hang: give up after a while (longer for Make Menu) so the phone
      doesn't sit on a spinner forever, e.g. after the app was in the background. */
   var ctl=window.AbortController?new AbortController():null, done=false;
-  var limit=fn==='makeMenuFor'?180000:40000;
-  var timer=setTimeout(function(){ if(!done){ done=true; if(ctl) ctl.abort(); fail('Google took too long to answer.'); } },limit);
+  var READS={listWeeks:1,getWeek:1,recentChanges:1,recentSwaps:1};
+  var limit=fn==='makeMenuFor'?180000:(READS[fn]?60000:150000);
+  var slow=setTimeout(function(){ if(!done && fn!=='makeMenuFor') document.getElementById('busytext').textContent='Still working… Google is slow right now. Keep the app open.'; },12000);
+  var timer=setTimeout(function(){ if(!done){ done=true; clearTimeout(slow); if(ctl) ctl.abort(); fail('Google took too long to answer.'); } },limit);
   function fail(msg){
     busy(false);
     if(!S.data && (fn==='listWeeks'||fn==='getWeek')) return showRetry(msg);
+    if(!READS[fn] && fn!=='makeMenuFor'){   // a change may have gone through anyway: show what the sheet has now
+      closeSheet(); toast('Not sure that went through. Showing what\'s in the sheet now; check it before trying again.',null,null,8000);
+      return refreshWeek();
+    }
     toast(msg+' Try again.','Retry',function(){ call(fn,args,ok,txt); },8000);
   }
   fetch(window.FE_API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({pin:getPin(),fn:fn,args:args}),signal:ctl?ctl.signal:undefined})
   .then(function(r){ return r.json(); })
   .then(function(res){
-    if(done) return; done=true; clearTimeout(timer);
+    if(done) return; done=true; clearTimeout(timer); clearTimeout(slow);
     busy(false);
     if(res.ok){ ok(res.result); return; }
     if(res.badPin){ setPin(''); askPin(function(){ call(fn,args,ok,txt); },'That PIN didn\'t work. Try again.'); return; }
     if(!S.data && (fn==='listWeeks'||fn==='getWeek')) return showRetry(res.error||'Something went wrong.');
+    if(/changed in the sheet/.test(res.error||'')){   // the app was showing an old copy: load the latest
+      closeSheet(); toast('That item was already changed. Here\'s what\'s in the sheet now.',null,null,6000);
+      return refreshWeek();
+    }
     toast(res.error||'Something went wrong.');
   })
-  .catch(function(){ if(done) return; done=true; clearTimeout(timer); fail('Can\'t reach the sheet. Check the connection.'); });
+  .catch(function(){ if(done) return; done=true; clearTimeout(timer); clearTimeout(slow); fail('Can\'t reach the sheet. Check the connection.'); });
+}
+function refreshWeek(){
+  if(!S.week) return;
+  call('getWeek',[S.week],function(d){ S.data=d; render(); loadSwaps(); },'Loading the latest…');
 }
 function showRetry(msg){
   document.getElementById('main').innerHTML='<div class="card" style="text-align:center;padding:22px 16px">'+
@@ -444,7 +458,7 @@ init();
 /* Auto-update: the phone can hold on to an old copy of the app for a while.
    Check GitHub for a newer version whenever the app opens or comes back to
    the front, and reload once if there is one. */
-var APP_BUILD='20261009185436';
+var APP_BUILD='20261010142013';
 function checkUpdate(){
   fetch('version.txt?'+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(v){
     v=v.trim(); if(v && v!==APP_BUILD && !sessionStorage.getItem('fe_reloaded_'+v)){
@@ -454,7 +468,14 @@ function checkUpdate(){
   }).catch(function(){});
 }
 checkUpdate();
-document.addEventListener('visibilitychange',function(){ if(!document.hidden) checkUpdate(); });
+var hiddenAt=0;
+document.addEventListener('visibilitychange',function(){
+  if(document.hidden){ hiddenAt=Date.now(); return; }
+  checkUpdate();
+  /* Back after a while: reload the list so nobody edits an old copy. */
+  var sheetOpen=document.getElementById('sheet').style.display==='block';
+  if(hiddenAt && Date.now()-hiddenAt>60000 && S.data && !sheetOpen && document.getElementById('busy').style.display!=='flex') refreshWeek();
+});
 </script>
 </body>
 </html>
