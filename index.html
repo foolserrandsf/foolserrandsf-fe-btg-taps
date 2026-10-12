@@ -465,7 +465,7 @@ init();
 /* Auto-update: the phone can hold on to an old copy of the app for a while.
    Check GitHub for a newer version whenever the app opens or comes back to
    the front, and reload once if there is one. */
-var APP_BUILD='20261010142805';
+var APP_BUILD='20261012113525';
 function checkUpdate(){
   fetch('version.txt?'+Date.now(),{cache:'no-store'}).then(function(r){return r.text();}).then(function(v){
     v=v.trim(); if(v && v!==APP_BUILD && !sessionStorage.getItem('fe_reloaded_'+v)){

@@ -6,7 +6,7 @@
 (function(){
 var W=792, H=612, DPI=300, K=DPI/72;
 var INK='#231F20', HH_INK='#000000';
-var LEFT_C=190.1, RIGHT_C=606.0;      // centers measured from the approved menu
+var LEFT_C=198, RIGHT_C=594;          // exact middle of each half, so each menu is centered once the sheet is cut
 var BEER_BASE=47.8, WINE_BASE=39.8;    // baseline of the first heading (wine sits a little higher)
 var LAST_BASE=592;                     // lowest a baseline may go
 var MAX_W=340;                         // widest a line may be before it's shrunk
@@ -134,6 +134,16 @@ function pdfFromJpeg(bytes,pxW,pxH){
   return new Blob(parts,{type:'application/pdf'});
 }
 
+/* slide a column up or down so the space above it equals the space below it */
+function vcenter(items){
+  var sz=function(it){ return Math.max.apply(null,it.runs.map(function(r){return r[2];})); };
+  var first=items[0], last=items[items.length-1];
+  var top=first.base-0.70*sz(first);       // top of the capital letters
+  var bottom=last.base+0.22*sz(last);       // bottom of letters like g, p, y
+  var shift=(H-(bottom-top))/2-top;
+  items.forEach(function(it){ it.base+=shift; });
+}
+
 window.buildMenuPdf=function(week,cb){
   var c=document.createElement('canvas'); c.width=Math.round(W*K); c.height=Math.round(H*K);
   ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,c.width,c.height);
@@ -145,6 +155,7 @@ window.buildMenuPdf=function(week,cb){
   var bottle={gap:30,runs:[['BOTTLE LIST AVAILABLE','B',BODY]],flex:true}; R.push(bottle);
   var pr=place(R,WINE_BASE);
   bottle.base=Math.max(bottle.base,Math.min(LAST_BASE,pl.last+10.8));
+  vcenter(L); vcenter(R);
   draw(L,LEFT_C); draw(R,RIGHT_C);
   c.toBlob(function(jpg){
     jpg.arrayBuffer().then(function(buf){
